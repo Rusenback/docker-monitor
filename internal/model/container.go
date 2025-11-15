@@ -1,0 +1,21 @@
+package model
+
+import "time"
+
+// Container edustaa Docker containeria
+type Container struct {
+	ID      string
+	Name    string
+	Image   string
+	Status  string
+	State   string
+	Created time.Time
+	Ports   []Port
+}
+
+// Port edustaa container porttia
+type Port struct {
+	Private int
+	Public  int
+	Type    string
+}
