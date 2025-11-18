@@ -25,7 +25,7 @@ func DefaultConfig() Config {
 // Client wrappaa Docker API clientin
 type Client struct {
 	cli *client.Client
-	ctx context.Context
+	Ctx context.Context
 }
 
 // NewClient luo uuden Docker clientin
@@ -58,7 +58,7 @@ func NewClient(cfg Config) (*Client, error) {
 
 	return &Client{
 		cli: cli,
-		ctx: context.Background(),
+		Ctx: context.Background(),
 	}, nil
 
 }

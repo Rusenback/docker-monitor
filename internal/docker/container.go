@@ -12,7 +12,7 @@ import (
 
 // ListContainers palauttaa kaikki containerit (running + stopped)
 func (c *Client) ListContainers() ([]model.Container, error) {
-	containers, err := c.cli.ContainerList(c.ctx, container.ListOptions{
+	containers, err := c.cli.ContainerList(c.Ctx, container.ListOptions{
 		All: true, // Näytä myös pysäytetyt
 	})
 	if err != nil {
@@ -53,30 +53,30 @@ func (c *Client) ListContainers() ([]model.Container, error) {
 
 // StartContainer käynnistää containerin
 func (c *Client) StartContainer(id string) error {
-	ctx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
+	Ctx, cancel := context.WithTimeout(c.Ctx, 10*time.Second)
 	defer cancel()
 
-	return c.cli.ContainerStart(ctx, id, container.StartOptions{})
+	return c.cli.ContainerStart(Ctx, id, container.StartOptions{})
 }
 
 // StopContainer pysäyttää containerin
 func (c *Client) StopContainer(id string) error {
-	ctx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
+	Ctx, cancel := context.WithTimeout(c.Ctx, 10*time.Second)
 	defer cancel()
 
 	timeout := 10 // Sekuntia
-	return c.cli.ContainerStop(ctx, id, container.StopOptions{
+	return c.cli.ContainerStop(Ctx, id, container.StopOptions{
 		Timeout: &timeout,
 	})
 }
 
 // RestartContainer uudelleenkäynnistää containerin
 func (c *Client) RestartContainer(id string) error {
-	ctx, cancel := context.WithTimeout(c.ctx, 20*time.Second)
+	Ctx, cancel := context.WithTimeout(c.Ctx, 20*time.Second)
 	defer cancel()
 
 	timeout := 10
-	return c.cli.ContainerRestart(ctx, id, container.StopOptions{
+	return c.cli.ContainerRestart(Ctx, id, container.StopOptions{
 		Timeout: &timeout,
 	})
 }
