@@ -31,8 +31,13 @@ func (c *Client) GetContainerStats(id string) (*model.Stats, error) {
 		return nil, err
 	}
 
+	return parseStats(&stats), nil
+}
+
+// parseStats muuttaa Docker API:n StatsJSON rakenteen model.Stats rakenteeksi
+func parseStats(stats *types.StatsJSON) *model.Stats {
 	// Laske CPU prosentti
-	cpuPercent := calculateCPUPercent(&stats)
+	cpuPercent := calculateCPUPercent(stats)
 
 	// Memory tiedot
 	memUsage := stats.MemoryStats.Usage
@@ -42,21 +47,59 @@ func (c *Client) GetContainerStats(id string) (*model.Stats, error) {
 		memPercent = float64(memUsage) / float64(memLimit) * 100.0
 	}
 
-	// Network tiedot
+	// Memory cache (tämä on usein iso osa "käytöstä" mutta vapautettavissa)
+	memCache := stats.MemoryStats.Stats["cache"]
+
+	// Network tiedot - lisätty paketit, virheet ja dropped
 	var networkRx, networkTx uint64
+	var networkRxPackets, networkTxPackets uint64
+	var networkRxErrors, networkTxErrors uint64
+	var networkRxDropped, networkTxDropped uint64
+
 	for _, network := range stats.Networks {
 		networkRx += network.RxBytes
 		networkTx += network.TxBytes
+		networkRxPackets += network.RxPackets
+		networkTxPackets += network.TxPackets
+		networkRxErrors += network.RxErrors
+		networkTxErrors += network.TxErrors
+		networkRxDropped += network.RxDropped
+		networkTxDropped += network.TxDropped
 	}
 
+	// Block I/O (Disk) tiedot
+	var blockRead, blockWrite uint64
+	for _, bioEntry := range stats.BlkioStats.IoServiceBytesRecursive {
+		switch bioEntry.Op {
+		case "Read":
+			blockRead += bioEntry.Value
+		case "Write":
+			blockWrite += bioEntry.Value
+		}
+	}
+
+	// PIDs (prosessien määrä)
+	pids := stats.PidsStats.Current
+
 	return &model.Stats{
-		CPUPercent:    cpuPercent,
-		MemoryUsage:   memUsage,
-		MemoryLimit:   memLimit,
-		MemoryPercent: memPercent,
-		NetworkRx:     networkRx,
-		NetworkTx:     networkTx,
-	}, nil
+		CPUPercent:       cpuPercent,
+		MemoryUsage:      memUsage,
+		MemoryLimit:      memLimit,
+		MemoryPercent:    memPercent,
+		MemoryCache:      memCache,
+		NetworkRx:        networkRx,
+		NetworkTx:        networkTx,
+		NetworkRxPackets: networkRxPackets,
+		NetworkTxPackets: networkTxPackets,
+		NetworkRxErrors:  networkRxErrors,
+		NetworkTxErrors:  networkTxErrors,
+		NetworkRxDropped: networkRxDropped,
+		NetworkTxDropped: networkTxDropped,
+		BlockRead:        blockRead,
+		BlockWrite:       blockWrite,
+		PIDs:             pids,
+		Timestamp:        stats.Read,
+	}
 }
 
 // calculateCPUPercent laskee CPU käytön prosentteina
@@ -78,6 +121,7 @@ func calculateCPUPercent(stats *types.StatsJSON) float64 {
 func (c *Client) StreamContainerStats(id string) (<-chan *model.Stats, <-chan error, func()) {
 	statsChan := make(chan *model.Stats)
 	errChan := make(chan error, 1)
+
 	ctx, cancel := context.WithCancel(c.Ctx)
 
 	go func() {
@@ -102,29 +146,11 @@ func (c *Client) StreamContainerStats(id string) (<-chan *model.Stats, <-chan er
 				return
 			}
 
-			cpuPercent := calculateCPUPercent(&stats)
-			memUsage := stats.MemoryStats.Usage
-			memLimit := stats.MemoryStats.Limit
-			memPercent := float64(0)
-			if memLimit > 0 {
-				memPercent = float64(memUsage) / float64(memLimit) * 100.0
-			}
-
-			var networkRx, networkTx uint64
-			for _, network := range stats.Networks {
-				networkRx += network.RxBytes
-				networkTx += network.TxBytes
-			}
+			// Käytä yhteistä parseStats funktiota
+			parsedStats := parseStats(&stats)
 
 			select {
-			case statsChan <- &model.Stats{
-				CPUPercent:    cpuPercent,
-				MemoryUsage:   memUsage,
-				MemoryLimit:   memLimit,
-				MemoryPercent: memPercent,
-				NetworkRx:     networkRx,
-				NetworkTx:     networkTx,
-			}:
+			case statsChan <- parsedStats:
 			case <-ctx.Done():
 				return
 			}

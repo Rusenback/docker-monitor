@@ -26,9 +26,9 @@ var (
 	stoppedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8"))
 	helpStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6ADC8")).Padding(1, 0)
 	panelStyle   = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder(), false, true, false, false).
+			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#585B70")).
-			Padding(0, 1)
+			Padding(1, 2)
 )
 
 type Model struct {
@@ -210,27 +210,97 @@ func restartContainer(client docker.DockerClient, id, name string) tea.Cmd {
 	}
 }
 
-func (m Model) View() string { return m.renderSplitView() }
-
-func (m Model) renderSplitView() string {
-	listWidth := int(float64(m.width) * 0.6)
-	statsWidth := m.width - listWidth
-	leftPanel := panelStyle.Width(listWidth).Render(m.renderListPanelContent(listWidth))
-	rightPanel := panelStyle.Width(statsWidth).Render(m.renderStatsPanelContent(statsWidth))
-	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
+func (m Model) View() string {
+	return m.renderFourPanelView()
 }
 
-func (m Model) renderListPanelContent(width int) string {
+func (m Model) renderFourPanelView() string {
+	// Calculate dimensions for 4-panel grid
+	// 60% left, 40% right for columns
+	// 60% top, 40% bottom for rows
+	leftWidth := int(float64(m.width) * 0.6)
+	rightWidth := m.width - leftWidth
+
+	topHeight := int(float64(m.height) * 0.6)
+	bottomHeight := m.height - topHeight
+
+	// Render all four panels
+	topLeftPanel := m.renderContainerListPanel(leftWidth, topHeight)
+	topRightPanel := m.renderStatsPanel(rightWidth, topHeight)
+	bottomLeftPanel := m.renderGraphPanel(leftWidth, bottomHeight)
+	bottomRightPanel := m.renderLogPanel(rightWidth, bottomHeight)
+
+	// Join top row
+	topRow := lipgloss.JoinHorizontal(lipgloss.Top, topLeftPanel, topRightPanel)
+
+	// Join bottom row
+	bottomRow := lipgloss.JoinHorizontal(lipgloss.Top, bottomLeftPanel, bottomRightPanel)
+
+	// Join rows vertically
+	return lipgloss.JoinVertical(lipgloss.Left, topRow, bottomRow)
+}
+
+func (m Model) renderContainerListPanel(width, height int) string {
+	content := m.renderListPanelContent(width, height)
+	return panelStyle.
+		Width(width - 4).
+		Height(height - 4).
+		Render(content)
+}
+
+func (m Model) renderStatsPanel(width, height int) string {
+	content := m.renderStatsPanelContent(width, height)
+	return panelStyle.
+		Width(width - 4).
+		Height(height - 4).
+		Render(content)
+}
+
+func (m Model) renderGraphPanel(width, height int) string {
+	var s strings.Builder
+	s.WriteString(titleStyle.Render("📈 Resource Usage Graph") + "\n\n")
+	s.WriteString("Coming soon...\n")
+	s.WriteString("CPU and Memory usage over time")
+
+	return panelStyle.
+		Width(width - 4).
+		Height(height - 4).
+		Render(s.String())
+}
+
+func (m Model) renderLogPanel(width, height int) string {
+	var s strings.Builder
+	s.WriteString(titleStyle.Render("📋 Log Preview") + "\n\n")
+
+	if len(m.containers) == 0 {
+		s.WriteString("No container selected")
+	} else {
+		container := m.containers[m.cursor]
+		s.WriteString(fmt.Sprintf("Container: %s\n\n", container.Name))
+		s.WriteString("Coming soon...\n")
+		s.WriteString("Real-time log streaming")
+	}
+
+	return panelStyle.
+		Width(width - 4).
+		Height(height - 4).
+		Render(s.String())
+}
+
+func (m Model) renderListPanelContent(width, height int) string {
 	var s strings.Builder
 	s.WriteString(titleStyle.Render("🐳 Containers") + "\n\n")
+
 	if m.err != nil {
 		s.WriteString(fmt.Sprintf("Error: %v\n", m.err))
 		return s.String()
 	}
+
 	if m.loading && len(m.containers) == 0 {
 		s.WriteString("Loading...\n")
 		return s.String()
 	}
+
 	running := 0
 	for _, c := range m.containers {
 		if c.State == "running" {
@@ -238,24 +308,49 @@ func (m Model) renderListPanelContent(width int) string {
 		}
 	}
 	s.WriteString(fmt.Sprintf("%d total, %d running\n\n", len(m.containers), running))
-	header := fmt.Sprintf("%-20s %-25s %-12s %-30s", "NAME", "IMAGE", "STATE", "STATUS")
+
+	// Adjusted column widths for the panel
+	colWidth := width - 10
+	nameWidth := int(float64(colWidth) * 0.25)
+	imageWidth := int(float64(colWidth) * 0.30)
+	stateWidth := 10
+	statusWidth := colWidth - nameWidth - imageWidth - stateWidth
+
+	header := fmt.Sprintf("%-*s %-*s %-*s %-*s",
+		nameWidth, "NAME",
+		imageWidth, "IMAGE",
+		stateWidth, "STATE",
+		statusWidth, "STATUS")
 	s.WriteString(headerStyle.Render(header) + "\n")
+
+	// Calculate how many containers we can show
+	maxContainers := height - 10 // Reserve space for header, help, etc.
+
 	for i, container := range m.containers {
-		name := truncate(container.Name, 20)
-		image := truncate(container.Image, 25)
+		if i >= maxContainers {
+			break
+		}
+
+		name := truncate(container.Name, nameWidth)
+		image := truncate(container.Image, imageWidth)
+
 		var stateStr string
 		if container.State == "running" {
 			stateStr = runningStyle.Render("running")
 		} else {
 			stateStr = stoppedStyle.Render(container.State)
 		}
+
+		status := truncate(container.DisplayStatus, statusWidth)
+
 		line := fmt.Sprintf(
-			"%-20s %-25s %-12s %-30s",
-			name,
-			image,
-			stateStr,
-			container.DisplayStatus,
+			"%-*s %-*s %-*s %-*s",
+			nameWidth, name,
+			imageWidth, image,
+			stateWidth+10, stateStr, // Account for ANSI codes
+			statusWidth, status,
 		)
+
 		if i == m.cursor {
 			s.WriteString(selectedStyle.Render("> " + line))
 		} else {
@@ -263,29 +358,36 @@ func (m Model) renderListPanelContent(width int) string {
 		}
 		s.WriteString("\n")
 	}
+
 	if m.message != "" {
 		s.WriteString("\n" + m.message + "\n")
 	}
-	help := "\n" + strings.Repeat(
-		"─",
-		width-4,
-	) + "\n" + "[↑/k] up  [↓/j] down  [s] start  [x] stop  [r] restart  [R] refresh  [q] quit"
+
+	help := "\n[↑/k] up  [↓/j] down  [s] start  [x] stop  [r] restart  [R] refresh  [q] quit"
 	s.WriteString(helpStyle.Render(help))
+
 	return s.String()
 }
 
-func (m Model) renderStatsPanelContent(width int) string {
+func (m Model) renderStatsPanelContent(width, height int) string {
 	var s strings.Builder
 	s.WriteString(titleStyle.Render("📊 Stats") + "\n\n")
+
 	if len(m.containers) == 0 {
+		s.WriteString("No containers available")
 		return s.String()
 	}
+
 	container := m.containers[m.cursor]
+
 	if container.State != "running" {
+		s.WriteString(fmt.Sprintf("Container: %s\n\n", container.Name))
 		s.WriteString("Container must be running\nto view stats")
 		return s.String()
 	}
+
 	s.WriteString(views.RenderStats(&container, m.currentStats))
+
 	return s.String()
 }
 
