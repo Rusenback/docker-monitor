@@ -7,7 +7,7 @@ import (
 	"github.com/docker/docker/client"
 )
 
-// Config sisältää Docker client konfiguraation
+// Config contains Docker client configuration
 type Config struct {
 	Host      string
 	TLSVerify bool
@@ -22,13 +22,13 @@ func DefaultConfig() Config {
 	}
 }
 
-// Client wrappaa Docker API clientin
+// Client wraps the Docker API client
 type Client struct {
 	cli *client.Client
 	Ctx context.Context
 }
 
-// NewClient luo uuden Docker clientin
+// NewClient creates a new Docker client
 func NewClient(cfg Config) (*Client, error) {
 	opts := []client.Opt{
 		client.WithHost(cfg.Host),
@@ -63,7 +63,7 @@ func NewClient(cfg Config) (*Client, error) {
 
 }
 
-// Close sulkee yhteyden
+// Close closes the connection
 func (c *Client) Close() error {
 	if c.cli != nil {
 		return c.cli.Close()

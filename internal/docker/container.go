@@ -1,4 +1,4 @@
-// internal/docker/container.go
+// Package docker internal/docker/container.go
 package docker
 
 import (
@@ -10,10 +10,10 @@ import (
 	"github.com/rusenback/docker-monitor/internal/model"
 )
 
-// ListContainers palauttaa kaikki containerit (running + stopped)
+// ListContainers returns all containers (running + stopped)
 func (c *Client) ListContainers() ([]model.Container, error) {
 	containers, err := c.cli.ContainerList(c.Ctx, container.ListOptions{
-		All: true, // Näytä myös pysäytetyt
+		All: true, // Show stopped containers too
 	})
 	if err != nil {
 		return nil, err
@@ -21,13 +21,13 @@ func (c *Client) ListContainers() ([]model.Container, error) {
 
 	result := make([]model.Container, 0, len(containers))
 	for _, cont := range containers {
-		// Poista "/" container nimen alusta jos on
+		// Remove "/" from container name if present
 		name := cont.Names[0]
 		if strings.HasPrefix(name, "/") {
 			name = name[1:]
 		}
 
-		// Muunna portit
+		// Convert ports
 		ports := make([]model.Port, 0)
 		for _, p := range cont.Ports {
 			ports = append(ports, model.Port{
@@ -38,7 +38,7 @@ func (c *Client) ListContainers() ([]model.Container, error) {
 		}
 
 		result = append(result, model.Container{
-			ID:      cont.ID[:12], // Lyhyt ID
+			ID:      cont.ID[:12], // Short ID
 			Name:    name,
 			Image:   cont.Image,
 			Status:  cont.Status,
@@ -51,7 +51,7 @@ func (c *Client) ListContainers() ([]model.Container, error) {
 	return result, nil
 }
 
-// StartContainer käynnistää containerin
+// StartContainer starts a container
 func (c *Client) StartContainer(id string) error {
 	Ctx, cancel := context.WithTimeout(c.Ctx, 10*time.Second)
 	defer cancel()
@@ -59,18 +59,18 @@ func (c *Client) StartContainer(id string) error {
 	return c.cli.ContainerStart(Ctx, id, container.StartOptions{})
 }
 
-// StopContainer pysäyttää containerin
+// StopContainer stops a container
 func (c *Client) StopContainer(id string) error {
 	Ctx, cancel := context.WithTimeout(c.Ctx, 10*time.Second)
 	defer cancel()
 
-	timeout := 10 // Sekuntia
+	timeout := 10 // Seconds
 	return c.cli.ContainerStop(Ctx, id, container.StopOptions{
 		Timeout: &timeout,
 	})
 }
 
-// RestartContainer uudelleenkäynnistää containerin
+// RestartContainer restarts a container
 func (c *Client) RestartContainer(id string) error {
 	Ctx, cancel := context.WithTimeout(c.Ctx, 20*time.Second)
 	defer cancel()

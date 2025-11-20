@@ -11,12 +11,12 @@ import (
 	"github.com/rusenback/docker-monitor/internal/model"
 )
 
-// GetContainerStats hakee containerin resurssitiedot
+// GetContainerStats retrieves container resource statistics
 func (c *Client) GetContainerStats(id string) (*model.Stats, error) {
 	ctx, cancel := context.WithTimeout(c.Ctx, 5*time.Second)
 	defer cancel()
 
-	// Hae stats (stream: false = hae vain kerran)
+	// Fetch stats (stream: false = fetch only once)
 	resp, err := c.cli.ContainerStats(ctx, id, false)
 	if err != nil {
 		return nil, err
@@ -34,12 +34,12 @@ func (c *Client) GetContainerStats(id string) (*model.Stats, error) {
 	return parseStats(&stats), nil
 }
 
-// parseStats muuttaa Docker API:n StatsJSON rakenteen model.Stats rakenteeksi
+// parseStats converts Docker API's StatsJSON structure to model.Stats structure
 func parseStats(stats *types.StatsJSON) *model.Stats {
-	// Laske CPU prosentti
+	// Calculate CPU percentage
 	cpuPercent := calculateCPUPercent(stats)
 
-	// Memory tiedot
+	// Memory information
 	memUsage := stats.MemoryStats.Usage
 	memLimit := stats.MemoryStats.Limit
 	memPercent := float64(0)
@@ -47,10 +47,10 @@ func parseStats(stats *types.StatsJSON) *model.Stats {
 		memPercent = float64(memUsage) / float64(memLimit) * 100.0
 	}
 
-	// Memory cache (tämä on usein iso osa "käytöstä" mutta vapautettavissa)
+	// Memory cache (this is often a large part of "usage" but can be freed)
 	memCache := stats.MemoryStats.Stats["cache"]
 
-	// Network tiedot - lisätty paketit, virheet ja dropped
+	// Network information - including packets, errors and dropped
 	var networkRx, networkTx uint64
 	var networkRxPackets, networkTxPackets uint64
 	var networkRxErrors, networkTxErrors uint64
@@ -78,7 +78,7 @@ func parseStats(stats *types.StatsJSON) *model.Stats {
 		}
 	}
 
-	// PIDs (prosessien määrä)
+	// PIDs (number of processes)
 	pids := stats.PidsStats.Current
 
 	return &model.Stats{
@@ -102,7 +102,7 @@ func parseStats(stats *types.StatsJSON) *model.Stats {
 	}
 }
 
-// calculateCPUPercent laskee CPU käytön prosentteina
+// calculateCPUPercent calculates CPU usage as a percentage
 func calculateCPUPercent(stats *types.StatsJSON) float64 {
 	cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage - stats.PreCPUStats.CPUUsage.TotalUsage)
 	systemDelta := float64(stats.CPUStats.SystemUsage - stats.PreCPUStats.SystemUsage)
@@ -116,8 +116,8 @@ func calculateCPUPercent(stats *types.StatsJSON) float64 {
 	return 0.0
 }
 
-// StreamContainerStats streamaa containerin statsit
-// Palauttaa channel josta voi lukea statseja ja error channelin
+// StreamContainerStats streams container statistics
+// Returns a channel for reading stats and an error channel
 func (c *Client) StreamContainerStats(id string) (<-chan *model.Stats, <-chan error, func()) {
 	statsChan := make(chan *model.Stats)
 	errChan := make(chan error, 1)
@@ -136,6 +136,7 @@ func (c *Client) StreamContainerStats(id string) (<-chan *model.Stats, <-chan er
 		defer resp.Body.Close()
 
 		decoder := json.NewDecoder(resp.Body)
+		updateCounter := 0
 		for {
 			var stats types.StatsJSON
 			if err := decoder.Decode(&stats); err != nil {
@@ -146,8 +147,17 @@ func (c *Client) StreamContainerStats(id string) (<-chan *model.Stats, <-chan er
 				return
 			}
 
-			// Käytä yhteistä parseStats funktiota
+			// Use the shared parseStats function
 			parsedStats := parseStats(&stats)
+
+			// Fetch processes on first update and then every 5th update
+			updateCounter++
+			if updateCounter == 1 || updateCounter%5 == 0 {
+				processes, err := c.GetContainerProcesses(id)
+				if err == nil {
+					parsedStats.Processes = processes
+				}
+			}
 
 			select {
 			case statsChan <- parsedStats:

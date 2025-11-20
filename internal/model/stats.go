@@ -3,7 +3,7 @@ package model
 
 import "time"
 
-// Stats sisältää containerin resurssitiedot
+// Stats contains container resource statistics
 type Stats struct {
 	// CPU
 	CPUPercent float64
@@ -29,7 +29,8 @@ type Stats struct {
 	BlockWrite uint64 // Total bytes written to disk
 
 	// Processes
-	PIDs uint64 // Number of processes/threads
+	PIDs      uint64    // Number of processes/threads
+	Processes []Process // Top processes running in the container
 
 	// Timestamp for rate calculations
 	Timestamp time.Time

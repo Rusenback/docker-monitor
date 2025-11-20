@@ -3,7 +3,7 @@ package docker
 
 import "github.com/rusenback/docker-monitor/internal/model"
 
-// DockerClient interface mahdollistaa mockauksen testeissä
+// DockerClient interface allows mocking in tests
 type DockerClient interface {
 	ListContainers() ([]model.Container, error)
 	StartContainer(id string) error
@@ -11,8 +11,12 @@ type DockerClient interface {
 	RestartContainer(id string) error
 	GetContainerStats(id string) (*model.Stats, error)
 	StreamContainerStats(id string) (<-chan *model.Stats, <-chan error, func())
+
+	GetContainerLogs(id string, tail int) ([]model.LogEntry, error)
+	StreamContainerLogs(id string) (<-chan model.LogEntry, <-chan error, func())
+
 	Close() error
 }
 
-// Varmista että Client toteuttaa interfacen
+// Ensure Client implements the interface
 var _ DockerClient = (*Client)(nil)
