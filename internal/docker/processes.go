@@ -67,11 +67,3 @@ func (c *Client) GetContainerProcesses(id string) ([]model.Process, error) {
 
 	return processes, nil
 }
-
-// Helper function to safely get a value from a slice
-func getOrEmpty(slice []string, index int) string {
-	if index >= 0 && index < len(slice) {
-		return slice[index]
-	}
-	return ""
-}

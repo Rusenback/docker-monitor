@@ -40,10 +40,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "pgup":
-			// Scroll logs up
+			// Scroll logs up by half page for better readability
 			if m.logsScroll > 0 {
 				visibleLines := m.calculateVisibleLogLines()
-				m.logsScroll -= visibleLines
+				scrollAmount := visibleLines / 2
+				if scrollAmount < 1 {
+					scrollAmount = 1
+				}
+				m.logsScroll -= scrollAmount
 				if m.logsScroll < 0 {
 					m.logsScroll = 0
 				}
@@ -51,10 +55,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "pgdown":
-			// Scroll logs down
+			// Scroll logs down by half page for better readability
 			visibleLines := m.calculateVisibleLogLines()
 			maxScroll := m.calculateMaxScroll()
-			m.logsScroll += visibleLines
+			scrollAmount := visibleLines / 2
+			if scrollAmount < 1 {
+				scrollAmount = 1
+			}
+			m.logsScroll += scrollAmount
 			if m.logsScroll >= maxScroll {
 				m.logsScroll = maxScroll
 				m.logsAutoScroll = true
@@ -110,6 +118,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.timeRange = storage.Range1Day
 		case "5":
 			m.timeRange = storage.Range1Week
+
+		case "tab":
+			// Cycle through panels: ContainerList -> Stats -> Graph -> Logs -> ContainerList
+			m.focusedPanel = (m.focusedPanel + 1) % 4
+
+		case "shift+tab":
+			// Cycle backwards through panels
+			m.focusedPanel = (m.focusedPanel + 3) % 4 // +3 is same as -1 in mod 4
 		}
 
 	case tickMsg:
@@ -119,18 +135,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		if msg.err != nil {
 			m.err = msg.err
-		} else {
-			m.containers = msg.containers
-			if m.cursor >= len(m.containers) && len(m.containers) > 0 {
-				m.cursor = len(m.containers) - 1
-			}
+			return m, nil
+		}
+
+		// Check if container list actually changed
+		containersChanged := containersListChanged(m.containers, msg.containers)
+
+		m.containers = msg.containers
+		if m.cursor >= len(m.containers) && len(m.containers) > 0 {
+			m.cursor = len(m.containers) - 1
+		}
+
+		// Only update stats/logs if containers changed or cursor container changed
+		if containersChanged {
 			return m, m.updateStatsAndLogsForCursor()
 		}
 
-		// Keep waiting for the next log line
-		if m.logsCancel != nil {
-			return m, m.waitForLogs()
-		}
 		return m, nil
 
 	case actionMsg:
@@ -289,4 +309,21 @@ func (m *Model) waitForLogs() tea.Cmd {
 			return logsMsg{err: err}
 		}
 	}
+}
+
+// containersListChanged checks if the container list has meaningfully changed
+func containersListChanged(old, new []model.Container) bool {
+	// Different length means containers were added/removed
+	if len(old) != len(new) {
+		return true
+	}
+
+	// Check if any container ID or state changed
+	for i := range old {
+		if old[i].ID != new[i].ID || old[i].State != new[i].State {
+			return true
+		}
+	}
+
+	return false
 }

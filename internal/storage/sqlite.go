@@ -164,15 +164,17 @@ func createTables(db *sql.DB) error {
 func (s *Storage) Write(entry *StatsEntry) {
 	select {
 	case s.writeChan <- entry:
+		// Successfully queued
 	default:
-		// Channel full, drop oldest
+		// Channel full, drop silently to avoid blocking
+		// This is acceptable for metrics collection
 	}
 }
 
 // writer runs in background and batch writes to database
 func (s *Storage) writer() {
 	buffer := make([]*StatsEntry, 0, 100)
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(5 * time.Second) // Flush more frequently
 	defer ticker.Stop()
 
 	for {
@@ -180,14 +182,14 @@ func (s *Storage) writer() {
 		case entry := <-s.writeChan:
 			buffer = append(buffer, entry)
 
-			// Batch write when buffer is full
-			if len(buffer) >= 100 {
+			// Batch write when buffer reaches 50 entries (more frequent writes)
+			if len(buffer) >= 50 {
 				s.batchWrite(buffer)
 				buffer = buffer[:0]
 			}
 
 		case <-ticker.C:
-			// Periodic flush
+			// Periodic flush every 5 seconds
 			if len(buffer) > 0 {
 				s.batchWrite(buffer)
 				buffer = buffer[:0]
@@ -334,13 +336,37 @@ func (s *Storage) cleanup() {
 	for {
 		select {
 		case <-ticker.C:
-			// Delete data older than 7 days
+			// Delete data older than 7 days in batches to avoid locking
 			cutoff := time.Now().Add(-7 * 24 * time.Hour).Unix()
-			s.db.Exec("DELETE FROM container_stats WHERE timestamp < ?", cutoff)
+			s.batchDelete(cutoff)
 
 		case <-s.closeChan:
 			return
 		}
+	}
+}
+
+// batchDelete removes old records in batches to prevent long-running locks
+func (s *Storage) batchDelete(cutoffTimestamp int64) {
+	const batchSize = 1000
+	for {
+		result, err := s.db.Exec(
+			"DELETE FROM container_stats WHERE timestamp < ? LIMIT ?",
+			cutoffTimestamp,
+			batchSize,
+		)
+		if err != nil {
+			return
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil || rowsAffected == 0 {
+			// No more rows to delete
+			return
+		}
+
+		// Small sleep to avoid overwhelming the database
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 

@@ -49,8 +49,8 @@ func (c *Client) StreamContainerLogs(id string) (<-chan model.LogEntry, <-chan e
 			ShowStdout: true,
 			ShowStderr: true,
 			Timestamps: true,
-			Follow:     false, // Stream logs
-			Tail:       "10",  // Start with last 50 lines
+			Follow:     true, // Stream logs continuously
+			Tail:       "10", // Start with last 10 lines
 		}
 
 		reader, err := c.cli.ContainerLogs(ctx, id, options)
@@ -61,6 +61,10 @@ func (c *Client) StreamContainerLogs(id string) (<-chan model.LogEntry, <-chan e
 		defer reader.Close()
 
 		scanner := bufio.NewScanner(reader)
+		// Increase buffer size for long log lines
+		buf := make([]byte, 0, 64*1024)
+		scanner.Buffer(buf, 1024*1024)
+
 		for scanner.Scan() {
 			line := scanner.Text()
 			entry, valid := parseLogLine(line)
@@ -75,7 +79,7 @@ func (c *Client) StreamContainerLogs(id string) (<-chan model.LogEntry, <-chan e
 			}
 		}
 
-		if err := scanner.Err(); err != nil && err != io.EOF {
+		if err := scanner.Err(); err != nil && err != io.EOF && err != context.Canceled {
 			errChan <- err
 		}
 	}()

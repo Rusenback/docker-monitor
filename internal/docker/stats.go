@@ -137,6 +137,8 @@ func (c *Client) StreamContainerStats(id string) (<-chan *model.Stats, <-chan er
 
 		decoder := json.NewDecoder(resp.Body)
 		updateCounter := 0
+		var lastProcesses []model.Process
+
 		for {
 			var stats types.StatsJSON
 			if err := decoder.Decode(&stats); err != nil {
@@ -150,13 +152,24 @@ func (c *Client) StreamContainerStats(id string) (<-chan *model.Stats, <-chan er
 			// Use the shared parseStats function
 			parsedStats := parseStats(&stats)
 
-			// Fetch processes on first update and then every 5th update
+			// Fetch processes on first update and then every 10th update
 			updateCounter++
-			if updateCounter == 1 || updateCounter%5 == 0 {
-				processes, err := c.GetContainerProcesses(id)
+			if updateCounter == 1 || updateCounter%10 == 0 {
+				// Fetch processes synchronously but with short timeout
+				processCtx, processCancel := context.WithTimeout(ctx, 1*time.Second)
+				processes, err := c.getContainerProcessesWithContext(processCtx, id)
+				processCancel()
+
 				if err == nil {
+					lastProcesses = processes
 					parsedStats.Processes = processes
+				} else if len(lastProcesses) > 0 {
+					// Use cached processes if fetch fails
+					parsedStats.Processes = lastProcesses
 				}
+			} else if len(lastProcesses) > 0 {
+				// Use last fetched processes for intermediate updates
+				parsedStats.Processes = lastProcesses
 			}
 
 			select {
@@ -168,4 +181,65 @@ func (c *Client) StreamContainerStats(id string) (<-chan *model.Stats, <-chan er
 	}()
 
 	return statsChan, errChan, cancel
+}
+
+// getContainerProcessesWithContext retrieves processes with a custom context
+func (c *Client) getContainerProcessesWithContext(ctx context.Context, id string) ([]model.Process, error) {
+	// Call ContainerTop to get process list
+	top, err := c.cli.ContainerTop(ctx, id, []string{"aux"})
+	if err != nil {
+		return nil, err
+	}
+
+	processes := make([]model.Process, 0)
+
+	// Find column indices
+	pidIdx, userIdx, cpuIdx, memIdx, cmdIdx := -1, -1, -1, -1, -1
+	for i, title := range top.Titles {
+		switch title {
+		case "PID":
+			pidIdx = i
+		case "USER":
+			userIdx = i
+		case "%CPU":
+			cpuIdx = i
+		case "%MEM":
+			memIdx = i
+		case "COMMAND", "CMD":
+			cmdIdx = i
+		}
+	}
+
+	// Parse each process
+	for _, proc := range top.Processes {
+		if len(proc) <= pidIdx || len(proc) <= userIdx ||
+			len(proc) <= cpuIdx || len(proc) <= memIdx || len(proc) <= cmdIdx {
+			continue
+		}
+
+		process := model.Process{
+			PID:     getOrEmpty(proc, pidIdx),
+			User:    getOrEmpty(proc, userIdx),
+			CPU:     getOrEmpty(proc, cpuIdx),
+			Memory:  getOrEmpty(proc, memIdx),
+			Command: getOrEmpty(proc, cmdIdx),
+		}
+
+		processes = append(processes, process)
+	}
+
+	// Limit to top 10
+	if len(processes) > 10 {
+		processes = processes[:10]
+	}
+
+	return processes, nil
+}
+
+// Helper function to safely get a value from a slice
+func getOrEmpty(slice []string, index int) string {
+	if index >= 0 && index < len(slice) {
+		return slice[index]
+	}
+	return ""
 }

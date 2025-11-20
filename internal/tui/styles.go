@@ -25,4 +25,9 @@ var (
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#585B70")).
 		Padding(1, 2)
+
+	focusedPanelStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#89B4FA")). // Bright blue for focused panel
+		Padding(1, 2)
 )

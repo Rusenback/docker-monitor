@@ -2,13 +2,18 @@ package tui
 
 import (
 	"fmt"
+	"github.com/charmbracelet/lipgloss"
 	"strings"
 )
 
 // renderContainerListPanel renders the container list panel
 func (m Model) renderContainerListPanel(width, height int) string {
 	content := m.renderListPanelContent(width, height)
-	return panelStyle.
+	style := panelStyle
+	if m.focusedPanel == PanelContainerList {
+		style = focusedPanelStyle
+	}
+	return style.
 		Width(width - 4).
 		Height(height - 4).
 		Render(content)
@@ -91,7 +96,7 @@ func (m Model) renderListPanelContent(width, height int) string {
 		s.WriteString("\n" + m.message + "\n")
 	}
 
-	help := "\n[↑/k] up  [↓/j] down  [s] start  [x] stop  [r] restart  [R] refresh  [q] quit"
+	help := "\n[↑/k] up  [↓/j] down  [s] start  [x] stop  [r] restart  [tab] focus  [q] quit"
 	s.WriteString(helpStyle.Render(help))
 
 	return s.String()
@@ -122,7 +127,11 @@ func (m Model) renderGraphPanel(width, height int) string {
 		content = renderDualGraphWithRange(m.cpuHistory, m.memoryHistory, width-4, height-4, m.timeRange)
 	}
 
-	return panelStyle.
+	style := panelStyle
+	if m.focusedPanel == PanelGraph {
+		style = focusedPanelStyle
+	}
+	return style.
 		Width(width - 4).
 		Height(height - 4).
 		Render(content)
@@ -149,10 +158,11 @@ func (m Model) renderLogPanel(width, height int) string {
 		if len(m.logs) == 0 {
 			s.WriteString("No logs yet...")
 		} else {
-			// Calculate visible lines: reserve space for title, container name, and help text
-			visibleLines := height - 8
-			if visibleLines < 1 {
-				visibleLines = 1
+			// Calculate visible lines: cut 2 more lines (12 total reserved)
+			// Height includes borders (4) + title (2) + container name (2) + help (2) + spacing (2) = 12
+			visibleLines := height - 12
+			if visibleLines < 3 {
+				visibleLines = 3
 			}
 
 			// Calculate the window of logs to display
@@ -174,23 +184,41 @@ func (m Model) renderLogPanel(width, height int) string {
 				}
 			}
 
-			// Render only the visible window of logs
-			maxLineWidth := width - 8
+			// Render only the visible window of logs with row numbers
+			maxLineWidth := width - 16 // Reserve space for row numbers and separator
+			logLines := make([]string, 0, end-start)
+
+			dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086"))
+
 			for i := start; i < end && i < totalLogs; i++ {
 				log := m.logs[i]
 				styledLine := styleLogEntry(log, maxLineWidth)
-				s.WriteString(styledLine + "\n")
+
+				// Add row number with dimmed style and separator
+				rowNumber := dimStyle.Render(fmt.Sprintf("%3d", i+1))
+				separator := dimStyle.Render("│")
+
+				logLines = append(logLines, rowNumber+" "+separator+" "+styledLine)
+			}
+
+			// Join with newlines (this prevents extra spacing)
+			if len(logLines) > 0 {
+				s.WriteString(strings.Join(logLines, "\n"))
 			}
 
 			// Show scroll indicator if there are more logs
 			if totalLogs > visibleLines {
-				s.WriteString(fmt.Sprintf("\n[%d/%d] PgUp/PgDown:scroll | a:toggle auto | c:clear",
-					start+1, totalLogs))
+				s.WriteString(fmt.Sprintf("\n\n[%d-%d/%d] PgUp/PgDown | a:auto | c:clear",
+					start+1, end, totalLogs))
 			}
 		}
 	}
 
-	return panelStyle.
+	style := panelStyle
+	if m.focusedPanel == PanelLogs {
+		style = focusedPanelStyle
+	}
+	return style.
 		Width(width - 4).
 		Height(height - 4).
 		Render(s.String())
@@ -199,7 +227,11 @@ func (m Model) renderLogPanel(width, height int) string {
 // renderStatsPanel renders the stats panel
 func (m Model) renderStatsPanel(width, height int) string {
 	content := m.renderStatsPanelContent(width, height)
-	return panelStyle.
+	style := panelStyle
+	if m.focusedPanel == PanelStats {
+		style = focusedPanelStyle
+	}
+	return style.
 		Width(width - 4).
 		Height(height - 4).
 		Render(content)

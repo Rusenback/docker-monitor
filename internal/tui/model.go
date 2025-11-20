@@ -45,7 +45,20 @@ type Model struct {
 	// Storage and time range
 	storage   *storage.Storage
 	timeRange storage.TimeRange
+
+	// Panel focus for highlighting
+	focusedPanel PanelType
 }
+
+// PanelType represents the different panels in the UI
+type PanelType int
+
+const (
+	PanelContainerList PanelType = iota
+	PanelStats
+	PanelGraph
+	PanelLogs
+)
 
 // Message types for Bubbletea update loop
 type tickMsg time.Time
@@ -85,6 +98,7 @@ func NewModel(client docker.DockerClient, store *storage.Storage) Model {
 		memoryHistory: memHist,
 		storage:       store,
 		timeRange:     storage.Range30Min, // Default to 30 minutes
+		focusedPanel:  PanelContainerList,  // Start with container list focused
 	}
 }
 
